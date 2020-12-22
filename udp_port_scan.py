@@ -2,6 +2,8 @@
 from scapy.all import *
 from time import perf_counter, sleep
 
+from tqdm import tqdm
+
 PORT_SCAN_FREQUENCY = 0.02
 PROBE_WAITING_TIME = 0.01
 
@@ -26,9 +28,12 @@ def scan_for_open_ports(candidate_port_range_start, range_size):
 	start_time = perf_counter()
 	for raw_packet in raw_packets:
 		L2_SOCKET.send(raw_packet)
-	answered, unanswered = L2_SOCKET.sr(PROBING_PACKET, timeout=PROBE_WAITING_TIME)
+	answered, unanswered = L2_SOCKET.sr(PROBING_PACKET, timeout=PROBE_WAITING_TIME, verbose=0)
 	stop_time = perf_counter()
-	sleep(PORT_SCAN_FREQUENCY - (stop_time - start_time))
+
+	sleep_duration = PORT_SCAN_FREQUENCY - (stop_time - start_time)
+	if sleep_duration > 0:
+		sleep(sleep_duration)
 
 	if len(answered) > 0:
 		return True
@@ -55,7 +60,7 @@ def search_open_port(candidate_port_range_start, range_size):
 	return NO_OPEN_PORT
 
 def scan_port_range(port_range_start, port_range_end):
-	for scanned_port_range_start in range(port_range_start, port_range_end + 1, BATCH_SIZE):
+	for scanned_port_range_start in tqdm(range(port_range_start, port_range_end + 1, BATCH_SIZE)):
 		open_port_in_range = scan_for_open_ports(scanned_port_range_start, BATCH_SIZE)
 
 		if open_port_in_range:
