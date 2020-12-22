@@ -5,12 +5,12 @@ from time import perf_counter, sleep
 PORT_SCAN_FREQUENCY = 0.02
 PROBE_WAITING_TIME = 0.01
 
-MIN_PORT = 23290
-MAX_PORT = 23489
+MIN_PORT = 1024
+MAX_PORT = 65535
 BATCH_SIZE = 50
 
 L2_SOCKET = conf.L2socket(iface='vboxnet0')
-PROBING_PACKET = Ether() / IP(dst='192.168.56.101') / UDP(sport=3333, dport=0) / 'Probing for answer'
+PROBING_PACKET = Ether() / IP(dst='192.168.56.10') / UDP(dport=0) / 'Probing for answer'
 PROBING_PACKET_RAW = raw(PROBING_PACKET)
 
 NO_OPEN_PORT = -1
@@ -20,7 +20,7 @@ def scan_for_open_ports(candidate_port_range_start, range_size):
 	padding_port_scans = BATCH_SIZE - len(destination_ports)
 	destination_ports += [port for port in range(candidate_port_range_start, candidate_port_range_start + padding_port_scans)]
 
-	packets = [Ether() / IP(src='192.168.56.102', dst='192.168.56.101') / UDP(sport=3333, dport=destination_port) / 'It works!' for destination_port in destination_ports]
+	packets = [Ether() / IP(src='192.168.56.20', dst='192.168.56.10') / UDP(sport=53, dport=destination_port) / 'It works!' for destination_port in destination_ports]
 	raw_packets = [raw(packet) for packet in packets]
 
 	start_time = perf_counter()
