@@ -71,7 +71,7 @@ def scan_port_range(port_range_start, port_range_end):
 	return NO_OPEN_PORT
 
 if __name__ == '__main__':
-	open_port = scan_port_range(MIN_PORT, MAX_PORT)
+	open_port = scan_port_range(MIN_PORT, MAX_PORT + 1)
 	if open_port != NO_OPEN_PORT:
 		print(f'Found open port {open_port}')
 	else:
